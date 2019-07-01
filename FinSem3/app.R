@@ -335,6 +335,7 @@ server <- function(input, output, session) {
         actionButton("step2button","Go to Step 2")
     })
     observeEvent(input$step2button,{
+        
         v$dataframe_dataqualityconfig <- v$dataframe_initialisation
         v$dataframe_dataqualityconfigBis <- v$dataframe_initialisation
         
@@ -461,6 +462,10 @@ server <- function(input, output, session) {
         actionButton("step3button","Go to Step 3")
     })
     observeEvent(input$step3button,{
+        for (i in names(v$dataframe_dataqualityconfig)) {
+            v$dataframe_dataqualityconfig[,i] <- as.factor(v$dataframe_dataqualityconfig[,i])
+        }
+        
         v$dataframe_costsconfig <- v$dataframe_dataqualityconfig
         
         colName <- v$columnSelected
@@ -468,6 +473,7 @@ server <- function(input, output, session) {
         col <- v$dataframe_costsconfig[,c(colName)]
         colNA <- is.na(col)
         df <- v$dataframe_costsconfig[!colNA,]
+        
         task = makeClassifTask(data = df, target = colName)
         selected_model = makeLearner("classif.naiveBayes")
         NB_mlr = mlr::train(selected_model, task)
@@ -521,16 +527,12 @@ server <- function(input, output, session) {
         res <- 0
         for (i in names(v$dataframe_dataqualityconfig)) {
             col <- v$dataframe_dataqualityconfig[,i]
-            if (is.numeric(col) || is.logical(col)){
-                res[i] = round(sum(is.na(col), na.rm = TRUE) / length(col) * 100,digits = 2)
+            
+            a <- 0
+            for (j in col) {
+                if(is.na(j) || j == "") a = a + 1
             }
-            else {
-                a <- 0
-                for (j in col) {
-                    if(j == "") a = a + 1
-                }
-                res[i] = round(a / length(col) * 100,digits = 2)
-            }
+            res[i] = round(a / length(col) * 100,digits = 2)
         }
         v$resNAsBarChart <- res[-1]
         plot_ly(x = names(v$resNAsBarChart), y = v$resNAsBarChart, name = "Pourcentage of NAs in each column", type = "bar")
@@ -563,10 +565,8 @@ server <- function(input, output, session) {
         df_noNAs <<- df[!colNA,]
         
         moy <- 0
-        nono <- 0
-        yesno <- 0
-        noyes <- 0
-        yesyes <- 0
+        cost <- 0
+        restab <- data.frame(v$tabCosts[,-3],cost)
         
         for (i in 1:input$foldselection) {
             
@@ -583,47 +583,31 @@ server <- function(input, output, session) {
             predictions_mlr <<- as.data.frame(predict(NB_mlr, newdata = test.data[,!names(df_noNAs) %in% c(v$columnSelected)]))
             resultNaiveBayes <<- table(predictions_mlr[,1],test.data[,v$columnSelected])
             res <- as.data.frame(resultNaiveBayes)
+            
+            
+            # Création du tableau de fréquences
+            for (row in row.names(restab)) {
+                restab[row,"cost"] = restab[row,"cost"] + res[row,"Freq"] 
+            }
+            
+            #Création moyenne
             aux <- 0
             for(j in row.names(res)){
-                if (as.integer(res[j,c("Var1")]) == as.integer(res[j,c("Var2")])) aux[j] = res[j,c("Freq")]
+                if (as.integer(res[j,c("Var1")]) == as.integer(res[j,c("Var2")])) {
+                    aux[j] = res[j,c("Freq")]
+                }
             }
             aux <- as.data.frame(aux)
             moy[i]<- sum(aux)/sum(res$Freq)*100
             
-            if(is.na(res[1,c("Freq")])){
-                nono[i] <- 0
-            }
-            else {
-                nono[i] <- res[1,c("Freq")]
-            }
-            
-            if(is.na(res[2,c("Freq")])){
-                yesno[i] <- 0
-            }
-            else {
-                yesno[i] <- res[2,c("Freq")]
-            }
-            
-            if (is.na(res[3,c("Freq")])){
-                noyes[i] <- 0
-            }
-            else {
-                noyes[i] <- res[3,c("Freq")]
-            }
-            
-            if(is.na(res[4,c("Freq")])){
-                yesyes[i] <- 0
-            }
-            else {
-                yesyes[i] <- res[4,c("Freq")]
-            }
         }
-        restab <- data.frame(
-            Var1 = c(0,1,0,1),
-            Var2 = c(0,0,1,1),
-            Freq = c(mean(nono),mean(yesno),mean(noyes),mean(yesyes))
-        )
-        v$resultData = sum(restab$Freq * v$tabCosts$cost) * 5 ####################################################################################################################
+        
+        # Tableau de fréquences 
+        for (row in row.names(restab)) {
+            restab[row,"cost"] = restab[row,"cost"] / input$foldselection
+        }
+        
+        v$resultData = sum(restab$cost * v$tabCosts$cost) * 5 ##############################
         
         v$accuracy <<- mean(moy)
         v$accuracyTab <<- moy
@@ -757,7 +741,7 @@ server <- function(input, output, session) {
         actionButton("compare","Compare with another Data Quality Config")
     })
     observeEvent(input$compare,{
-        
+
         v$dataframe_comparedataqualityconfig <- v$dataframe_initialisation
         v$dataframe_comparedataqualityconfigBis <- v$dataframe_initialisation
         
@@ -822,6 +806,10 @@ server <- function(input, output, session) {
         actionButton("compareResultsbutton","Go to compared results")
     })
     observeEvent(input$compareResultsbutton,{
+        
+        for (i in names(v$dataframe_comparedataqualityconfig)) {
+            v$dataframe_comparedataqualityconfig[,i] <- as.factor(v$dataframe_comparedataqualityconfig[,i])
+        }
         v$dataframe_compareresults <- v$dataframe_comparedataqualityconfig
         
         df <- v$dataframe_compareresults
@@ -835,10 +823,8 @@ server <- function(input, output, session) {
         df_noNAs <<- df[!colNA,]
         
         moy <- 0
-        nono <- 0
-        yesno <- 0
-        noyes <- 0
-        yesyes <- 0
+        cost <- 0
+        restab <- data.frame(v$tabCosts[,-3],cost)
         
         for (i in 1:input$foldselection) {
             
@@ -862,40 +848,16 @@ server <- function(input, output, session) {
             aux <- as.data.frame(aux)
             moy[i]<- sum(aux)/sum(res$Freq)*100
             
-            if(is.na(res[1,c("Freq")])){
-                nono[i] <- 0
-            }
-            else {
-                nono[i] <- res[1,c("Freq")]
+            # Création du tableau de fréquences
+            for (row in row.names(restab)) {
+                restab[row,"cost"] = restab[row,"cost"] + res[row,"Freq"] 
             }
             
-            if(is.na(res[2,c("Freq")])){
-                yesno[i] <- 0
-            }
-            else {
-                yesno[i] <- res[2,c("Freq")]
-            }
-            
-            if (is.na(res[3,c("Freq")])){
-                noyes[i] <- 0
-            }
-            else {
-                noyes[i] <- res[3,c("Freq")]
-            }
-            
-            if(is.na(res[4,c("Freq")])){
-                yesyes[i] <- 0
-            }
-            else {
-                yesyes[i] <- res[4,c("Freq")]
-            }
         }
-        restab <- data.frame(
-            Var1 = c(0,1,0,1),
-            Var2 = c(0,0,1,1),
-            Freq = c(mean(nono),mean(yesno),mean(noyes),mean(yesyes))
-        )
-        v$resultData = sum(restab$Freq * v$tabCosts$cost) * 5 ####################################################################################################################
+        for (row in row.names(restab)) {
+            restab[row,"cost"] = restab[row,"cost"] / input$foldselection
+        }
+        v$resultData <- sum(restab$cost * v$tabCosts$cost) * 5 #########################################################
         
         v$accuracy <<- mean(moy)
         v$accuracyTab <<- moy
@@ -942,19 +904,16 @@ server <- function(input, output, session) {
     # Bar chart of NAs pourcentage --------------------------------------------
     
     output$compareNAsBarChart <- renderPlotly({
+        
         res <- 0
         for (i in names(v$dataframe_comparedataqualityconfig)) {
             col <- v$dataframe_comparedataqualityconfig[,i]
-            if (is.numeric(col) || is.logical(col)){
-                res[i] = round(sum(is.na(col), na.rm = TRUE) / length(col) * 100,digits = 2)
+            
+            a <- 0
+            for (j in col) {
+                if(is.na(j) || j == "") a = a + 1
             }
-            else {
-                a <- 0
-                for (j in col) {
-                    if(j == "") a = a + 1
-                }
-                res[i] = round(a / length(col) * 100,digits = 2)
-            }
+            res[i] = round(a / length(col) * 100,digits = 2)
         }
         v$resNAsBarChart <- res[-1]
         plot_ly(x = names(v$resNAsBarChart), y = v$resNAsBarChart, name = "Pourcentage of NAs in each column", type = "bar")
@@ -1025,7 +984,7 @@ server <- function(input, output, session) {
     # Cost Results -------------------------------------
     
     output$comparecostresultsvalue <- renderValueBox({
-        result <- round(v$resultData, digits = 0)
+        result <- round(v$resultData, digits = 2)
         valueBox(
             value = paste("Cost : ",result)
             ,paste('Cost :',result)
