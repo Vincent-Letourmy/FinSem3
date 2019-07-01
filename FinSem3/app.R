@@ -157,7 +157,7 @@ body <- dashboardBody(
                 sidebarPanel(
                     h1("Results"),
                     tags$hr(),
-                    uiOutput("accurancyvalue"),
+                    uiOutput("accuracyvalue"),
                     tags$hr(),
                     uiOutput("boxBarChar"),
                     tags$hr(),
@@ -222,10 +222,39 @@ body <- dashboardBody(
                     )
                 )
             )
+        ),
+        
+        #_______________________________________________________ Compare Results ____________________________________________________________________________________________#
+        
+        tabItem(
+            tabName = "compareresults",
+            fluidRow(
+                column(6,
+                       h1("Results - First Data Quality Config"),
+                       tags$hr(),
+                       uiOutput("accurancyvalueSaved"),
+                       tags$hr(),
+                       uiOutput("boxBarCharSaved"),
+                       tags$hr(),
+                       uiOutput("costresultsvalueSaved"),
+                       tags$hr()
+                       ,
+                       dataTableOutput("tabLoadedResultsSaved")
+                ),
+                column(6,
+                       h1("Results - Second Data Quality Config"),
+                       tags$hr(),
+                       uiOutput("compareaccuracyvalue"),
+                       tags$hr(),
+                       uiOutput("compareboxBarChar"),
+                       tags$hr(),
+                       uiOutput("comparecostresultsvalue"),
+                       tags$hr()
+                       ,
+                       dataTableOutput("comparetabLoadedResults")
+                )
+            )
         )
-        
-        
-    
     )
 )
 
@@ -251,7 +280,12 @@ server <- function(input, output, session) {
                         resultData = NULL, 
                         accuracy = NULL, 
                         accuracyTab = NULL,
-                        resMissingValuesBarChart = NULL)
+                        resMissingValuesBarChart = NULL,
+                        
+                        accuracySaved = NULL,
+                        accuracyTabSaved = NULL,
+                        resultDataSaved = NULL
+                        )
     
     #__________________________________________________ Initialisation ___________________________________________________________________________________________#
     
@@ -656,7 +690,7 @@ server <- function(input, output, session) {
     
     # Accuracy CrossValidation ------------------------------------
     
-    output$accurancyvalue <- renderValueBox({
+    output$accuracyvalue <- renderValueBox({
         
         res <- v$accuracyTab
         mean <- mean(res)
@@ -720,12 +754,16 @@ server <- function(input, output, session) {
     # Compare with other inputs
     
     output$compareButton <- renderUI({
-        actionButton("compare","Compare with other Data Quality inputs")
+        actionButton("compare","Compare with another Data Quality Config")
     })
     observeEvent(input$compare,{
         
         v$dataframe_comparedataqualityconfig <- v$dataframe_initialisation
         v$dataframe_comparedataqualityconfigBis <- v$dataframe_initialisation
+        
+        v$accuracySaved <- v$accuracy
+        v$accuracyTabSaved <- v$accuracyTab
+        v$resultDataSaved <- v$resultData
         
         newtab <- switch(input$sidebarmenu,
                          "results" = "comparedataqualityconfig",
@@ -777,7 +815,7 @@ server <- function(input, output, session) {
                           selected = "comparedatabase")
     })
     
-    # Step 3 button --------------------------------------------
+    # Compare Results button --------------------------------------------
     
     output$compareResultsbutton <- renderUI({
         if (is.null(v$dataframe_dataqualityconfig)) return (NULL)
@@ -785,6 +823,84 @@ server <- function(input, output, session) {
     })
     observeEvent(input$compareResultsbutton,{
         v$dataframe_compareresults <- v$dataframe_comparedataqualityconfig
+        
+        df <- v$dataframe_compareresults
+        
+        # Naive Bayes CrossValidation #
+        
+        v$data <- unique(sort(df[,input$selectcolumn]))
+        #v$columnSelected <- input$selectcolumn
+        
+        colNA <- is.na(df[,v$columnSelected])
+        df_noNAs <<- df[!colNA,]
+        
+        moy <- 0
+        nono <- 0
+        yesno <- 0
+        noyes <- 0
+        yesyes <- 0
+        
+        for (i in 1:input$foldselection) {
+            
+            training.samples <- df_noNAs[,v$columnSelected] %>% 
+                caret::createDataPartition(p = 0.8, list = FALSE)
+            train.data <- df_noNAs[training.samples, ]
+            test.data <- df_noNAs[-training.samples, ]
+            
+            task <<- makeClassifTask(data = train.data, target = v$columnSelected)
+            selected_model <<- makeLearner("classif.naiveBayes")
+            
+            NB_mlr <<- mlr::train(selected_model, task)
+            
+            predictions_mlr <<- as.data.frame(predict(NB_mlr, newdata = test.data[,!names(df_noNAs) %in% c(v$columnSelected)]))
+            resultNaiveBayes <<- table(predictions_mlr[,1],test.data[,v$columnSelected])
+            res <- as.data.frame(resultNaiveBayes)
+            aux <- 0
+            for(j in row.names(res)){
+                if (as.integer(res[j,c("Var1")]) == as.integer(res[j,c("Var2")])) aux[j] = res[j,c("Freq")]
+            }
+            aux <- as.data.frame(aux)
+            moy[i]<- sum(aux)/sum(res$Freq)*100
+            
+            if(is.na(res[1,c("Freq")])){
+                nono[i] <- 0
+            }
+            else {
+                nono[i] <- res[1,c("Freq")]
+            }
+            
+            if(is.na(res[2,c("Freq")])){
+                yesno[i] <- 0
+            }
+            else {
+                yesno[i] <- res[2,c("Freq")]
+            }
+            
+            if (is.na(res[3,c("Freq")])){
+                noyes[i] <- 0
+            }
+            else {
+                noyes[i] <- res[3,c("Freq")]
+            }
+            
+            if(is.na(res[4,c("Freq")])){
+                yesyes[i] <- 0
+            }
+            else {
+                yesyes[i] <- res[4,c("Freq")]
+            }
+        }
+        restab <- data.frame(
+            Var1 = c(0,1,0,1),
+            Var2 = c(0,0,1,1),
+            Freq = c(mean(nono),mean(yesno),mean(noyes),mean(yesyes))
+        )
+        v$resultData = sum(restab$Freq * v$tabCosts$cost) * 5 ####################################################################################################################
+        
+        v$accuracy <<- mean(moy)
+        v$accuracyTab <<- moy
+        
+        # Naive Bayes CrossValidation #
         
         newtab <- switch(input$sidebarmenu,
                          "comparedataqualityconfig" = "compareresults",
@@ -844,6 +960,146 @@ server <- function(input, output, session) {
         plot_ly(x = names(v$resNAsBarChart), y = v$resNAsBarChart, name = "Pourcentage of NAs in each column", type = "bar")
         
     }
+    )
+    
+    #_______________________________________________________ Compare Results ____________________________________________________________________________________________#
+    
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Renders ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+    
+    # Campare results Table from CSV --------------------------------------------
+    
+    output$comparetabLoadedResults <- renderDataTable(
+        v$dataframe_compareresults,
+        options = list(scrollX = TRUE,pageLength = 14, searching = FALSE)
+    )
+    
+    # Accuracy CrossValidation ------------------------------------
+    
+    output$compareaccuracyvalue <- renderValueBox({
+        
+        res <- v$accuracyTab
+        mean <- mean(res)
+        error <- qt(0.975,df=length(res)-1)*sd(res)/sqrt(length(res))
+        
+        left <- mean - error
+        right <- mean + error
+        
+        v$accuracy <- round(v$accuracy, digits = 2)
+        valueBox(
+            value = paste("Accuracy : ",v$accuracy,"%")
+            ,paste('Confidence Interval :',round(left,digits = 1),"%  /  ",round(right,digits = 1),"%")
+            ,icon = icon("stats",lib='glyphicon')
+            ,color = "purple")
+        
+        
+    })
+    
+    # Accuracy BarChart CrossValidation ------------------------------------
+    
+    output$compareaccuracyCVbar <- renderPlotly ({
+        if (!is.null(v$accuracy)) {
+            plot_ly(
+                x = c(1:input$foldselection),
+                y = c(v$accuracyTab),
+                name = "Bar Chart",
+                type = "bar"
+            )
+        }
+    })
+    
+    output$compareboxBarChar <- renderUI({
+        if (!is.null(v$accuracy)) {
+            fluidRow(
+                box( width = 12,
+                     title = "Accuracy Bar Chart"
+                     ,status = "primary"
+                     ,solidHeader = TRUE 
+                     ,collapsible = TRUE
+                     ,collapsed = TRUE
+                     ,plotlyOutput("compareaccuracyCVbar")
+                )
+            )
+        }
+    })
+    
+    # Cost Results -------------------------------------
+    
+    output$comparecostresultsvalue <- renderValueBox({
+        result <- round(v$resultData, digits = 0)
+        valueBox(
+            value = paste("Cost : ",result)
+            ,paste('Cost :',result)
+            ,icon = icon("menu-hamburger",lib='glyphicon')
+            ,color = "green")
+    })
+    
+    ############################## SAVED #################################
+    
+    # Accuracy CrossValidation SAVED ------------------------------------
+    
+    output$accurancyvalueSaved <- renderValueBox({
+        if (!is.null(v$accuracyTabSaved)){
+            res <- v$accuracyTabSaved
+            mean <- mean(res)
+            error <- qt(0.975,df=length(res)-1)*sd(res)/sqrt(length(res))
+            
+            left <- mean - error
+            right <- mean + error
+            
+            v$accuracySaved <- round(v$accuracySaved, digits = 2)
+            valueBox(
+                value = paste("Accuracy : ",v$accuracySaved,"%")
+                ,paste('Confidence Interval :',round(left,digits = 1),"%  /  ",round(right,digits = 1),"%")
+                ,icon = icon("stats",lib='glyphicon')
+                ,color = "purple")
+        }
+        
+    })
+    
+    # Accuracy BarChart CrossValidation SAVED ------------------------------------
+    
+    output$accuracyCVbarSaved <- renderPlotly ({
+        if (!is.null(v$accuracySaved)) {
+            plot_ly(
+                x = c(1:input$foldselection),
+                y = c(v$accuracyTabSaved),
+                name = "Bar Chart",
+                type = "bar"
+            )
+        }
+    })
+    
+    output$boxBarCharSaved <- renderUI({
+        if (!is.null(v$accuracySaved)) {
+            fluidRow(
+                box( width = 12,
+                     title = "Accuracy Bar Chart"
+                     ,status = "primary"
+                     ,solidHeader = TRUE 
+                     ,collapsible = TRUE
+                     ,collapsed = TRUE
+                     ,plotlyOutput("accuracyCVbarSaved")
+                )
+            )
+        }
+    })
+    
+    # Cost Results SAVED -------------------------------------
+    
+    output$costresultsvalueSaved <- renderValueBox({
+        result <- round(v$resultDataSaved, digits = 0)
+        valueBox(
+            value = paste("Cost : ",result)
+            ,paste('Cost :',result)
+            ,icon = icon("menu-hamburger",lib='glyphicon')
+            ,color = "green")
+    })
+    
+    # Table from CSV compare results SAVED --------------------------------------------
+    
+    output$tabLoadedResultsSaved <- renderDataTable(
+        v$dataframe_results,
+        options = list(scrollX = TRUE,pageLength = 14, searching = FALSE)
     )
     
 }
